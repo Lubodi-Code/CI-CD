@@ -1,0 +1,145 @@
+pipeline {
+    agent any
+    
+    environment {
+        // Define environment variables
+        NODE_VERSION = '20'
+        APP_NAME = 'my-react-app'
+        DOCKER_IMAGE = "${APP_NAME}:${BUILD_NUMBER}"
+        DOCKER_REGISTRY = 'your-registry.com' // Change this to your Docker registry
+    }
+    
+    tools {
+        nodejs "${NODE_VERSION}"
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                echo 'Checking out code...'
+                checkout scm
+            }
+        }
+        
+        stage('Install Dependencies') {
+            steps {
+                echo 'Installing dependencies...'
+                sh 'npm ci'
+            }
+        }
+        
+        stage('Lint') {
+            steps {
+                echo 'Running linter...'
+                sh 'npm run lint'
+            }
+        }
+        
+        stage('Build') {
+            steps {
+                echo 'Building application...'
+                sh 'npm run build'
+            }
+        }
+        
+        stage('Test') {
+            steps {
+                echo 'Running tests...'
+                // Add your test command here when you have tests
+                // sh 'npm run test'
+                echo 'No tests configured yet'
+            }
+        }
+        
+        stage('Build Docker Image') {
+            steps {
+                echo 'Building Docker image...'
+                script {
+                    docker.build("${DOCKER_IMAGE}")
+                }
+            }
+        }
+        
+        stage('Security Scan') {
+            steps {
+                echo 'Running security scan...'
+                // You can add security scanning tools here like:
+                // sh 'docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v $PWD:/root/.cache/ aquasec/trivy ${DOCKER_IMAGE}'
+                echo 'Security scan skipped - configure your preferred security tool'
+            }
+        }
+        
+        stage('Push to Registry') {
+            when {
+                branch 'main'
+            }
+            steps {
+                echo 'Pushing Docker image to registry...'
+                script {
+                    docker.withRegistry("https://${DOCKER_REGISTRY}", 'docker-registry-credentials') {
+                        docker.image("${DOCKER_IMAGE}").push()
+                        docker.image("${DOCKER_IMAGE}").push('latest')
+                    }
+                }
+            }
+        }
+        
+        stage('Deploy to Staging') {
+            when {
+                branch 'main'
+            }
+            steps {
+                echo 'Deploying to staging environment...'
+                // Add your deployment scripts here
+                // Example: kubectl, docker-compose, etc.
+                sh '''
+                    echo "Deployment commands would go here"
+                    # docker-compose -f docker-compose.staging.yml up -d
+                '''
+            }
+        }
+        
+        stage('Deploy to Production') {
+            when {
+                allOf {
+                    branch 'main'
+                    expression { params.DEPLOY_TO_PRODUCTION == true }
+                }
+            }
+            steps {
+                echo 'Deploying to production environment...'
+                input message: 'Deploy to production?', ok: 'Deploy'
+                // Add your production deployment scripts here
+                sh '''
+                    echo "Production deployment commands would go here"
+                    # docker-compose -f docker-compose.prod.yml up -d
+                '''
+            }
+        }
+    }
+    
+    post {
+        always {
+            echo 'Cleaning up workspace...'
+            cleanWs()
+        }
+        
+        success {
+            echo 'Pipeline completed successfully!'
+            // You can add notification here (Slack, email, etc.)
+        }
+        
+        failure {
+            echo 'Pipeline failed!'
+            // You can add failure notifications here
+        }
+        
+        unstable {
+            echo 'Pipeline unstable!'
+        }
+    }
+    
+    parameters {
+        booleanParam(name: 'DEPLOY_TO_PRODUCTION', defaultValue: false, description: 'Deploy to production environment')
+    }
+}
